@@ -112,6 +112,9 @@ contract BondingCurve is ReentrancyGuard {
         address reserveAddress = Token(address(token)).reserve();
         uint256 reserveTokens = token.balanceOf(reserveAddress);
 
+        // Set the token as graduated
+        Token(address(token)).setGraduated();
+
         // Create the liquidity pool with all collected VAPOR and reserve tokens
         vapor.approve(address(liquidityPool), vaporCollected);
         token.approve(address(liquidityPool), reserveTokens);

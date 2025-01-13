@@ -30,12 +30,26 @@ contract TokenFactory {
         external
         returns (address tokenAddress, address curveAddress)
     {
-        // Deploy new token with liquidityPool as reserve
-        Token token = new Token(name, symbol, msg.sender, liquidityPool);
+        // Deploy token first
+        Token token = new Token(
+            name,
+            symbol,
+            msg.sender,
+            liquidityPool,
+            address(this) // Temporary curve address (will be updated)
+        );
 
-        // Deploy bonding curve
-        BondingCurve curve =
-            new BondingCurve(address(token), vapor, liquidityPool, defaultStartPrice, defaultTargetVapor);
+        // Deploy bonding curve with the token address
+        BondingCurve curve = new BondingCurve(
+            address(token),
+            vapor,
+            liquidityPool,
+            defaultStartPrice,
+            defaultTargetVapor
+        );
+
+        // Update the curve address in the token
+        token.updateCurveAddress(address(curve));
 
         // Transfer curve's share to the curve
         uint256 curveAmount = (token.TOTAL_SUPPLY() * token.CURVE_SHARE()) / 100;

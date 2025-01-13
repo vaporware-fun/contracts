@@ -396,4 +396,138 @@ contract TokenSystemTest is Test {
         curve.sellTokens(0);
         vm.stopPrank();
     }
+
+    function testTransferRestrictionsBeforeGraduation() public {
+        // Create token
+        vm.startPrank(alice);
+        (address tokenAddr, address curveAddr) = factory.createToken("Test Token", "TEST");
+        Token token = Token(tokenAddr);
+        BondingCurve curve = BondingCurve(curveAddr);
+        vm.stopPrank();
+
+        // Bob buys some tokens
+        vm.startPrank(bob);
+        uint256 vaporAmount = 1 ether;
+        vapor.approve(curveAddr, vaporAmount);
+        curve.buyTokens(vaporAmount);
+        uint256 bobTokens = token.balanceOf(bob);
+        vm.stopPrank();
+
+        // Create a new user charlie
+        address charlie = address(0x3);
+
+        // Bob should not be able to transfer tokens to charlie directly
+        vm.startPrank(bob);
+        vm.expectRevert(Token.NotGraduated.selector);
+        token.transfer(charlie, bobTokens / 2);
+        vm.stopPrank();
+
+        // Bob should be able to sell tokens back to curve
+        vm.startPrank(bob);
+        token.approve(curveAddr, bobTokens / 2);
+        curve.sellTokens(bobTokens / 2);
+        vm.stopPrank();
+
+        // Verify balances
+        assertEq(token.balanceOf(bob), bobTokens / 2);
+        assertEq(token.balanceOf(charlie), 0);
+    }
+
+    function testTransferAllowedAfterGraduation() public {
+        // Create token
+        vm.startPrank(alice);
+        (address tokenAddr, address curveAddr) = factory.createToken("Test Token", "TEST");
+        Token token = Token(tokenAddr);
+        BondingCurve curve = BondingCurve(curveAddr);
+        vm.stopPrank();
+
+        // Bob buys enough tokens to reach target
+        vm.startPrank(bob);
+        vapor.approve(curveAddr, TARGET_VAPOR);
+        curve.buyTokens(TARGET_VAPOR);
+        uint256 bobTokens = token.balanceOf(bob);
+        vm.stopPrank();
+
+        // Approve reserve tokens for liquidity pool
+        vm.startPrank(address(liquidityPool));
+        token.approve(address(liquidityPool), token.balanceOf(address(liquidityPool)));
+        vm.stopPrank();
+
+        // Graduate the curve
+        vm.startPrank(bob);
+        curve.graduate();
+        vm.stopPrank();
+
+        // Create a new user charlie
+        address charlie = address(0x3);
+
+        // Bob should now be able to transfer tokens to charlie
+        vm.startPrank(bob);
+        token.transfer(charlie, bobTokens / 2);
+        vm.stopPrank();
+
+        // Verify balances
+        assertEq(token.balanceOf(bob), bobTokens / 2);
+        assertEq(token.balanceOf(charlie), bobTokens / 2);
+    }
+
+    function testTransferFromRestrictionsBeforeGraduation() public {
+        // Create token
+        vm.startPrank(alice);
+        (address tokenAddr, address curveAddr) = factory.createToken("Test Token", "TEST");
+        Token token = Token(tokenAddr);
+        BondingCurve curve = BondingCurve(curveAddr);
+        vm.stopPrank();
+
+        // Bob buys some tokens
+        vm.startPrank(bob);
+        uint256 vaporAmount = 1 ether;
+        vapor.approve(curveAddr, vaporAmount);
+        curve.buyTokens(vaporAmount);
+        uint256 bobTokens = token.balanceOf(bob);
+        vm.stopPrank();
+
+        // Create new users
+        address charlie = address(0x3);
+        address dave = address(0x4);
+
+        // Bob approves charlie to spend tokens
+        vm.startPrank(bob);
+        token.approve(charlie, bobTokens);
+        token.approve(curveAddr, bobTokens);
+        vm.stopPrank();
+
+        // Charlie should not be able to transfer Bob's tokens to Dave
+        vm.startPrank(charlie);
+        vm.expectRevert(Token.NotGraduated.selector);
+        token.transferFrom(bob, dave, bobTokens / 2);
+        vm.stopPrank();
+
+        // Charlie should be able to transfer Bob's tokens to the curve
+        vm.startPrank(charlie);
+        token.transferFrom(bob, curveAddr, bobTokens / 2);
+        vm.stopPrank();
+
+        // Verify balances
+        assertEq(token.balanceOf(bob), bobTokens / 2);
+        assertEq(token.balanceOf(dave), 0);
+        assertEq(token.balanceOf(curveAddr), token.TOTAL_SUPPLY() * token.CURVE_SHARE() / 100 - bobTokens / 2);
+    }
+
+    function testInitialDistributionAndCurveSetup() public {
+        vm.startPrank(alice);
+        (address tokenAddr, address curveAddr) = factory.createToken("Test Token", "TEST");
+        Token token = Token(tokenAddr);
+        
+        // Verify initial distribution was successful
+        uint256 curveAmount = (token.TOTAL_SUPPLY() * token.CURVE_SHARE()) / 100;
+        uint256 reserveAmount = (token.TOTAL_SUPPLY() * token.RESERVE_SHARE()) / 100;
+        
+        assertEq(token.balanceOf(curveAddr), curveAmount);
+        assertEq(token.balanceOf(address(liquidityPool)), reserveAmount);
+        
+        // Verify token is not graduated yet
+        assertFalse(token.hasGraduated());
+        vm.stopPrank();
+    }
 }
